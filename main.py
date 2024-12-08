@@ -19,18 +19,53 @@ try:
 except:
     write_summary = False
 
-from model import Word2Vec_neg_sampling
+from skipgram import Word2Vec_neg_sampling, check_cuda
 from utils_modified import count_parameters
 from datasets import word2vec_dataset
-from  config import *
-from test import print_nearest_words
-from utils_modified import q
+from utils_modified import q, nearest_word, count_parameters
 
 # for tensorboard to work properly on embeddings projections
 import tensorflow as tf
 import tensorboard as tb
 tf.io.gfile = tb.compat.tensorflow_stub.io.gfile
 
+def print_nearest_words(model, test_words, word_to_ix, ix_to_word, top = 5):
+    
+    model.eval()
+    emb_matrix = model.embeddings_input.weight.data.cpu()
+    
+    nearest_words_dict = {}
+
+    print('==============================================')
+    for t_w in test_words:
+        
+        inp_emb = emb_matrix[word_to_ix[t_w], :]  
+
+        emb_ranking_top, _ = nearest_word(inp_emb, emb_matrix, top = top+1)
+        print(t_w.ljust(10), ' | ', ', '.join([ix_to_word[i] for i in emb_ranking_top[1:]]))
+
+    return nearest_words_dict
+
+EMBEDDING_DIM = 128
+DEVICE = torch.device("cuda" if check_cuda() else "cpu")
+BATCH_SIZE = 64
+LEARNING_RATE = 0.001
+CONTEXT_SIZE = 2
+FRACTION_DATA = 1
+SUBSAMPLING = 1e-5
+SAMPLING_RATE = 1e-3
+NUM_EPOCHS = 5
+NEGATIVE_SAMPLES = 10
+DISPLAY_EVERY_N_BATCH = 1000
+DISPLAY_BATCH_LOSS = True
+SAVE_EVERY_N_EPOCH = 2
+LR = 0.001
+MODEL_ID = 'fordham-data'
+PREPROCESSED_DATA_DIR  = os.path.join(MODEL_ID, 'preprocessed_data')
+PREPROCESSED_DATA_PATH = os.path.join(PREPROCESSED_DATA_DIR, 'preprocessed_data_' + MODEL_ID + '_' + str(FRACTION_DATA) + '.pickle')
+SUMMARY_DIR = os.path.join(MODEL_ID, 'summary') 
+MODEL_DIR = os.path.join(MODEL_ID, 'models')
+TEST_WORDS = ['COMPUTERSCIENCEI', 'COMPUTERSCIENCEII', 'CALCULUSI', 'CALCULUSII', 'PHYSICSI', 'INTRODUCTIONTOITALIANI']
 # remove MODEL_DIR if it exists
 if os.path.exists(MODEL_DIR):
     shutil.rmtree(MODEL_DIR)
@@ -48,7 +83,7 @@ if write_summary:
 
 # make training data
 if not os.path.exists(PREPROCESSED_DATA_PATH):
-    train_dataset = word2vec_dataset(DATA_SOURCE, CONTEXT_SIZE, FRACTION_DATA, SUBSAMPLING, SAMPLING_RATE)
+    train_dataset = word2vec_dataset('fordham-data', CONTEXT_SIZE, FRACTION_DATA, SUBSAMPLING, SAMPLING_RATE)
 
     if not os.path.exists(PREPROCESSED_DATA_DIR):
         os.makedirs(PREPROCESSED_DATA_DIR)
@@ -72,7 +107,7 @@ vocab = train_dataset.vocab
 word_to_ix = train_dataset.word_to_ix
 ix_to_word = train_dataset.ix_to_word
 
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = BATCH_SIZE, shuffle = not True)
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = BATCH_SIZE, shuffle = True)
 print('len(train_dataset): ', len(train_dataset))
 print('len(train_loader): ', len(train_loader))
 print('len(vocab): ', len(vocab), '\n')
@@ -122,8 +157,15 @@ for epoch in tqdm(range(NUM_EPOCHS)):
             print_nearest_words(model, TEST_WORDS, word_to_ix, ix_to_word, top = 5)        
 
     # write embeddings every SAVE_EVERY_N_EPOCH epoch
-    if epoch%SAVE_EVERY_N_EPOCH == 0:      
-        writer.add_embedding(model.embeddings_input.weight.data, metadata=[ix_to_word[k] for k in range(len(ix_to_word))], global_step=epoch)
+    if epoch%SAVE_EVERY_N_EPOCH == 0: 
+        metadata = [ix_to_word[k] for k in range(len(ix_to_word))]
+        metadata_path = os.path.join(MODEL_DIR, "metadata.tsv")
+        with open(metadata_path, "w") as f:
+            for meta in metadata:
+                f.write(f"{meta}\n")
+        writer.add_embedding(model.embeddings_input.weight.data,
+        metadata=metadata_path, 
+        global_step=epoch)
 
         torch.save({'model_state_dict': model.state_dict(), 
                     'losses': losses,

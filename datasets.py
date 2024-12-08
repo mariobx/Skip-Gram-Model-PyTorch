@@ -4,6 +4,7 @@ import nltk
 nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('wordnet')
+nltk.download('punkt_tab')
 
 from nltk.stem.wordnet import WordNetLemmatizer 
 from nltk.tokenize import word_tokenize
@@ -95,9 +96,13 @@ class word2vec_dataset(Dataset):
             print('forming sentences by joining tokenized words...')
             for d in tqdm(data):
                 sents.append(' '.join(d))
+        elif data_source == 'fordham-data':
+            import process
+            sents = process.create_student_term_course(pd.read_csv('/home/mariom/Work/Fordham/labs/Fall24/final/processed-data-11-25-24.csv'), 'SID', 'Semester', 'Department')['CourseSequence'].tolist()
+            sents = [" ".join("".join(item.split()) for item in sublist) for sublist in sents]
+            sents = [s for s in sents if type(s) == str]
 
         sent_list_tokenized = [word_tokenize(s) for s in sents]
-        print('len(sent_list_tokenized): ', len(sent_list_tokenized))
 
         # remove the stopwords
         sent_list_tokenized_filtered = []
